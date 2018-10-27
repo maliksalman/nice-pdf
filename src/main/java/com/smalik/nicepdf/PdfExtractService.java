@@ -116,10 +116,10 @@ public class PdfExtractService {
 //            // splits single PDF into single-page PDFs
 //            service.splitPdf("/tmp", "src/main/resources/sample.pdf");
 
-            for (int i = 0; i < 2; i++) {
+            for (int i = 0; i < 3; i++) {
 
                 logger.info("Processing: page-" + (i+1));
-                        
+
                 // info about images in PDF
                 service.imageInfoFromPdf("/tmp/page-" + (i+1));
 
