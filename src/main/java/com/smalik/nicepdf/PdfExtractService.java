@@ -9,24 +9,24 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PdfExtractService {
 
     private static Logger logger = LoggerFactory.getLogger(PdfExtractService.class);
     private EmbeddedImageRepository repository = new EmbeddedImageRepository(new File("/tmp"));
 
-    public void splitPdf(final String destFolder, String sourcePdf) throws Exception {
+    public int splitPdf(final String destFolder, String sourcePdf) throws Exception {
 
+        final AtomicInteger partNumber = new AtomicInteger(0);
         PdfDocument pdfDoc = new PdfDocument(new PdfReader(sourcePdf));
 
         List<PdfDocument> splitDocuments = new PdfSplitter(pdfDoc) {
 
-            int partNumber = 1;
-
             @Override
             protected PdfWriter getNextPdfWriter(PageRange documentPageRange) {
                 try {
-                    return new PdfWriter(destFolder + "/page-" + String.valueOf(partNumber++) + ".pdf");
+                    return new PdfWriter(destFolder + "/page-" + partNumber.addAndGet(1) + ".pdf");
                 } catch (FileNotFoundException e) {
                     throw new RuntimeException();
                 }
@@ -38,6 +38,7 @@ public class PdfExtractService {
         }
 
         pdfDoc.close();
+        return partNumber.get();
     }
 
     public void imageInfoFromPdf(String pdfFileNoExtension) throws Exception {
@@ -67,7 +68,7 @@ public class PdfExtractService {
 
             for (PdfName pdfName : xObjects.keySet()) {
                 PdfStream x = xObjects.getAsStream(pdfName);
-                byte[] bytes = x.getBytes(true);
+                byte[] bytes = x.getBytes(false);
                 String md5 = EmbeddedImage.calculateMd5(bytes);
 
                 EmbeddedImage embeddedImage = repository.findEmbeddedImageByMd5(md5);
@@ -113,10 +114,11 @@ public class PdfExtractService {
 
         PdfExtractService service = new PdfExtractService();
         try {
-//            // splits single PDF into single-page PDFs
-//            service.splitPdf("/tmp", "src/main/resources/sample.pdf");
+            // splits single PDF into single-page PDFs
+            int pages = service.splitPdf("/tmp", "src/main/resources/sample.pdf");
 
-            for (int i = 0; i < 3; i++) {
+            //
+            for (int i = 0; i < pages; i++) {
 
                 logger.info("Processing: page-" + (i+1));
 
