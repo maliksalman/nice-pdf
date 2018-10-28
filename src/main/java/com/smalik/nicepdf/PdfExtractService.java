@@ -8,15 +8,27 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PdfExtractService {
 
     private static Logger logger = LoggerFactory.getLogger(PdfExtractService.class);
-    private EmbeddedImageRepository repository = new EmbeddedImageRepository(new File("/tmp"));
 
-    public int splitPdf(final String destFolder, String sourcePdf) throws Exception {
+    private EmbeddedResourceRepository repository;
+    private File dir;
+
+    public PdfExtractService(File dir) {
+        this.dir = dir;
+        repository = new EmbeddedResourceRepository(new File("/tmp"));
+    }
+
+    public EmbeddedResourceRepository getRepository() {
+        return repository;
+    }
+
+    public int splitPdf(final File sourcePdf, final String namePattern) throws Exception {
 
         final AtomicInteger partNumber = new AtomicInteger(0);
         PdfDocument pdfDoc = new PdfDocument(new PdfReader(sourcePdf));
@@ -26,7 +38,8 @@ public class PdfExtractService {
             @Override
             protected PdfWriter getNextPdfWriter(PageRange documentPageRange) {
                 try {
-                    return new PdfWriter(destFolder + "/page-" + partNumber.addAndGet(1) + ".pdf");
+                    String name = String.format(namePattern, partNumber.addAndGet(1));
+                    return new PdfWriter(new File(dir, name));
                 } catch (FileNotFoundException e) {
                     throw new RuntimeException();
                 }
@@ -41,105 +54,174 @@ public class PdfExtractService {
         return partNumber.get();
     }
 
-    public void imageInfoFromPdf(String pdfFileNoExtension) throws Exception {
+    public void resourceInfoFromPdf(String pdfFile) throws Exception {
 
-        PdfDocument pdfDoc = new PdfDocument(new PdfReader(pdfFileNoExtension + ".pdf"));
+        PdfDocument pdfDoc = new PdfDocument(new PdfReader(new File(dir, pdfFile)));
         for (int i = 0; i < pdfDoc.getNumberOfPages(); i++) {
 
             PdfDictionary page = pdfDoc.getPage(i + 1).getPdfObject();
             PdfDictionary resources = page.getAsDictionary(PdfName.Resources);
-            PdfDictionary xObjects = resources.getAsDictionary(PdfName.XObject);
 
-            for (PdfName pdfName : xObjects.keySet()) {
-                PdfStream x = xObjects.getAsStream(pdfName);
-                logger.info("Page:" + i + ", Key:" + pdfName + ", Length:" + x.getLength() + ", Type:" + x.getType() + ", ID:" + x.getAsString(PdfName.ID));
+            if (resources != null) {
+                processImages(resources.getAsDictionary(PdfName.XObject));
+                processFonts(resources.getAsDictionary(PdfName.Font));
             }
         }
     }
 
-    public void zeroOutImagesInPdf(String pdfFileNoExtension) throws Exception {
+    private void processImages(PdfDictionary images) {
+        if (images != null) {
+            for (PdfName name : images.keySet()) {
+                PdfStream image = images.getAsStream(name);
+                if (PdfName.Image.equals(image.getAsName(PdfName.Subtype))) {
+                    logger.info("Found Image - Key:" + name + ", Value:" + image + ", ID:" + image.getAsString(PdfName.ID));
+                }
+            }
+        }
+    }
 
-        PdfDocument pdfDoc = new PdfDocument(new PdfReader(pdfFileNoExtension + ".pdf"), new PdfWriter(pdfFileNoExtension + ".extracted.pdf"));
+    private void processFonts(PdfDictionary fonts) {
+        if (fonts != null) {
+            for (PdfName name : fonts.keySet()) {
+                PdfDictionary font = fonts.getAsDictionary(name);
+                PdfDictionary fontDescriptor = font.getAsDictionary(PdfName.FontDescriptor);
+                if (fontDescriptor != null) {
+                    PdfStream fontFile = fontDescriptor.getAsStream(PdfName.FontFile2);
+                    if (fontFile != null) {
+                        logger.info("Found Font - Key:" + name + ", Length:" + fontFile.getLength() + ", ID:" + fontFile.getAsString(PdfName.ID));
+                    }
+                }
+            }
+        }
+    }
+
+
+    public void zeroOutResourcesInPdf(String source, String dest) throws IOException {
+
+        PdfDocument pdfDoc = new PdfDocument(
+                new PdfReader(new File(dir, source)),
+                new PdfWriter(new File(dir, dest))
+        );
+
         for (int i = 0; i < pdfDoc.getNumberOfPages(); i++) {
 
             PdfDictionary page = pdfDoc.getPage(i+1).getPdfObject();
             PdfDictionary resources = page.getAsDictionary(PdfName.Resources);
-            PdfDictionary xObjects = resources.getAsDictionary(PdfName.XObject);
-
-            for (PdfName pdfName : xObjects.keySet()) {
-                PdfStream x = xObjects.getAsStream(pdfName);
-                byte[] bytes = x.getBytes(false);
-                String md5 = EmbeddedImage.calculateMd5(bytes);
-
-                EmbeddedImage embeddedImage = repository.findEmbeddedImageByMd5(md5);
-                if (embeddedImage == null) {
-                    embeddedImage = new EmbeddedImage(x.getLength(), md5);
-                    repository.addEmbeddedImage(embeddedImage, bytes);
-                }
-
-                x.setData(new byte[0]);
-                x.put(PdfName.ID, new PdfString(embeddedImage.getId()));
+            if (resources != null) {
+                zeroOutImages(resources.getAsDictionary(PdfName.XObject));
+                zeroOutFonts(resources.getAsDictionary(PdfName.Font));
             }
         }
 
         pdfDoc.close();
     }
 
-    public void reconstructImageInPdf(String pdfFileNoExtension) throws Exception {
+    private void zeroOutImages(PdfDictionary images) throws IOException {
+        if (images != null) {
+            for (PdfName name : images.keySet()) {
+                PdfStream imageAsStream = images.getAsStream(name);
+                if (PdfName.Image.equals(imageAsStream.getAsName(PdfName.Subtype)) && imageAsStream.getLength() > 512) {
+                    zeroOutStream(imageAsStream, "image");
+                }
+            }
+        }
+    }
 
-        PdfDocument pdfDoc = new PdfDocument(new PdfReader(pdfFileNoExtension + ".pdf"), new PdfWriter(pdfFileNoExtension + ".reconstructed.pdf"));
+    private void zeroOutFonts(PdfDictionary fonts) throws IOException {
+        if (fonts != null) {
+            for (PdfName name : fonts.keySet()) {
+                PdfDictionary font = fonts.getAsDictionary(name);
+                PdfDictionary fontDescriptor = font.getAsDictionary(PdfName.FontDescriptor);
+                if (fontDescriptor != null) {
+
+                    PdfStream fontfile = fontDescriptor.getAsStream(PdfName.FontFile2);
+                    if (fontfile != null) {
+                        zeroOutStream(fontfile, "font");
+                    }
+                }
+            }
+        }
+    }
+
+    private void zeroOutStream(PdfStream stream, String type) throws IOException {
+
+        boolean dctDecode = false;
+        if (PdfName.DCTDecode.equals(stream.getAsName(PdfName.Filter))) {
+            // dct encoded streams should be retrieved as is
+            dctDecode = true;
+        }
+
+        byte[] bytes = stream.getBytes(!dctDecode);
+        String md5 = repository.calculateMd5(bytes);
+
+        EmbeddedResource resource = repository.findEmbeddedResourceByMd5(md5);
+        if (resource == null) {
+            resource = new EmbeddedResource(stream.getLength(), md5, type, dctDecode);
+            repository.addEmbeddedResource(resource, bytes);
+        }
+
+        stream.setData(new byte[0]);
+        stream.put(PdfName.ID, new PdfString(resource.getId()));
+    }
+
+
+    public void reconstructResourcesInPdf(String source, String dest) throws IOException {
+
+        PdfDocument pdfDoc = new PdfDocument(
+                new PdfReader(new File(dir, source)),
+                new PdfWriter(new File(dir, dest))
+        );
+
         for (int i = 0; i < pdfDoc.getNumberOfPages(); i++) {
 
             PdfDictionary page = pdfDoc.getPage(i + 1).getPdfObject();
             PdfDictionary resources = page.getAsDictionary(PdfName.Resources);
-            PdfDictionary xObjects = resources.getAsDictionary(PdfName.XObject);
 
-            for (PdfName pdfName : xObjects.keySet()) {
-
-                PdfStream x = xObjects.getAsStream(pdfName);
-                PdfString embeddedImageId = x.getAsString(PdfName.ID);
-
-                if (embeddedImageId != null) {
-                    EmbeddedImage embeddedImage = repository.findEmbeddedImageById(embeddedImageId.getValue());
-                    x.setData(repository.readEmbeddedImageData(embeddedImage));
-                    x.remove(PdfName.ID);
-                }
-            }
+            reconstructWithImages(resources.getAsDictionary(PdfName.XObject));
+            reconstructWithFonts(resources.getAsDictionary(PdfName.Font));
         }
 
         pdfDoc.close();
     }
 
-    public static void main(String[] args) {
+    private void reconstructWithFonts(PdfDictionary fonts) throws IOException {
+        if (fonts != null) {
+            for (PdfName name : fonts.keySet()) {
+                PdfDictionary font = fonts.getAsDictionary(name);
+                PdfDictionary fontDescriptor = font.getAsDictionary(PdfName.FontDescriptor);
+                if (fontDescriptor != null) {
 
-        PdfExtractService service = new PdfExtractService();
-        try {
-            // splits single PDF into single-page PDFs
-            int pages = service.splitPdf("/tmp", "src/main/resources/sample.pdf");
+                    PdfStream stream = fontDescriptor.getAsStream(PdfName.FontFile2);
+                    if (stream != null) {
+                        PdfString embeddedId = stream.getAsString(PdfName.ID);
 
-            // process each page
-            for (int i = 0; i < pages; i++) {
-
-                logger.info("Processing: page-" + (i+1));
-
-                // info about images in PDF
-                service.imageInfoFromPdf("/tmp/page-" + (i+1));
-
-                // zero out images in PDF
-                service.zeroOutImagesInPdf("/tmp/page-" + (i+1));
-
-                // info about images in PDF
-                service.imageInfoFromPdf("/tmp/page-" + (i+1) + ".extracted");
-
-                // reconstruct the pdf with original images
-                service.reconstructImageInPdf("/tmp/page-" + (i+1));
-
-                // info about images in PDF
-                service.imageInfoFromPdf("/tmp/page-" + (i+1) + ".reconstructed");
+                        if (embeddedId != null) {
+                            EmbeddedResource resource = repository.findEmbeddedResourceById(embeddedId.getValue());
+                            stream.setData(repository.readEmbeddedResourceData(resource));
+                            stream.remove(PdfName.ID);
+                        }
+                    }
+                }
             }
+        }
+    }
 
-        } catch (Exception e) {
-            logger.error("Some bad happened", e);
+    private void reconstructWithImages(PdfDictionary images) throws IOException {
+        if (images != null) {
+            for (PdfName name : images.keySet()) {
+
+                PdfStream image = images.getAsStream(name);
+                PdfString embeddedImageId = image.getAsString(PdfName.ID);
+
+                if (embeddedImageId != null) {
+                    EmbeddedResource resource = repository.findEmbeddedResourceById(embeddedImageId.getValue());
+                    image.setData(repository.readEmbeddedResourceData(resource));
+                    image.remove(PdfName.ID);
+                    if (resource.isDctDecode()) {
+                        image.put(PdfName.Filter, PdfName.DCTDecode);
+                    }
+                }
+            }
         }
     }
 }

@@ -1,19 +1,24 @@
 package com.smalik.nicepdf;
 
-import org.springframework.util.DigestUtils;
-
 import java.util.UUID;
 
-public class EmbeddedImage {
+public class EmbeddedResource {
 
     private long length;
     private String id;
     private String md5;
+    private boolean dctDecode;
+    private String type;
 
-    public EmbeddedImage(long length, String md5) {
+    public EmbeddedResource() {
+    }
+
+    public EmbeddedResource(long length, String md5, String type, boolean dctDecode) {
         this.id = UUID.randomUUID().toString();
         this.length = length;
         this.md5 = md5;
+        this.dctDecode = dctDecode;
+        this.type = type;
     }
 
     public long getLength() {
@@ -40,7 +45,19 @@ public class EmbeddedImage {
         this.md5 = md5;
     }
 
-    public static String calculateMd5(byte[] data) {
-        return DigestUtils.md5DigestAsHex(data);
+    public boolean isDctDecode() {
+        return dctDecode;
+    }
+
+    public void setDctDecode(boolean dctDecode) {
+        this.dctDecode = dctDecode;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
     }
 }
