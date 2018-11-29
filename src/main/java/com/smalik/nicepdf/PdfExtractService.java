@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PdfExtractService {
@@ -21,42 +20,39 @@ public class PdfExtractService {
 
     public PdfExtractService(File dir) {
         this.dir = dir;
-        repository = new EmbeddedResourceRepository(new File("/tmp"));
+        repository = new EmbeddedResourceRepository(new File(dir, "resources"));
     }
 
     public EmbeddedResourceRepository getRepository() {
         return repository;
     }
 
-    public int splitPdf(final File sourcePdf, final String namePattern) throws Exception {
+    public int splitPdf(final File sourcePdf, final String subDirName, final String namePattern, final int numPagesPerPart) throws Exception {
 
         final AtomicInteger partNumber = new AtomicInteger(0);
         PdfDocument pdfDoc = new PdfDocument(new PdfReader(sourcePdf));
 
-        List<PdfDocument> splitDocuments = new PdfSplitter(pdfDoc) {
+        new File(dir, subDirName).mkdir();
+        new PdfSplitter(pdfDoc) {
 
             @Override
             protected PdfWriter getNextPdfWriter(PageRange documentPageRange) {
                 try {
                     String name = String.format(namePattern, partNumber.addAndGet(1));
-                    return new PdfWriter(new File(dir, name));
+                    return new PdfWriter(new File(new File(dir, subDirName), name));
                 } catch (FileNotFoundException e) {
                     throw new RuntimeException();
                 }
             }
-        }.splitByPageCount(1);
-
-        for (PdfDocument doc : splitDocuments) {
-            doc.close();
-        }
+        }.splitByPageCount(numPagesPerPart, (pdfDocument, pageRange) -> pdfDocument.close());
 
         pdfDoc.close();
         return partNumber.get();
     }
 
-    public void resourceInfoFromPdf(String pdfFile) throws Exception {
+    public void resourceInfoFromPdf(String subDir, String pdfFile) throws Exception {
 
-        PdfDocument pdfDoc = new PdfDocument(new PdfReader(new File(dir, pdfFile)));
+        PdfDocument pdfDoc = new PdfDocument(new PdfReader(new File(new File(dir, subDir), pdfFile)));
         for (int i = 0; i < pdfDoc.getNumberOfPages(); i++) {
 
             PdfDictionary page = pdfDoc.getPage(i + 1).getPdfObject();
@@ -67,6 +63,7 @@ public class PdfExtractService {
                 processFonts(resources.getAsDictionary(PdfName.Font));
             }
         }
+        pdfDoc.close();
     }
 
     private void processImages(PdfDictionary images) {
@@ -96,11 +93,12 @@ public class PdfExtractService {
     }
 
 
-    public void zeroOutResourcesInPdf(String source, String dest) throws IOException {
+    public void zeroOutResourcesInPdf(String sourceDir, String destDir, String name) throws IOException {
 
+        new File(dir, destDir).mkdir();
         PdfDocument pdfDoc = new PdfDocument(
-                new PdfReader(new File(dir, source)),
-                new PdfWriter(new File(dir, dest))
+                new PdfReader(new File(new File(dir, sourceDir), name)),
+                new PdfWriter(new File(new File(dir, destDir), name))
         );
 
         for (int i = 0; i < pdfDoc.getNumberOfPages(); i++) {
@@ -120,7 +118,7 @@ public class PdfExtractService {
         if (images != null) {
             for (PdfName name : images.keySet()) {
                 PdfStream imageAsStream = images.getAsStream(name);
-                if (PdfName.Image.equals(imageAsStream.getAsName(PdfName.Subtype)) && imageAsStream.getLength() > 512) {
+                if (PdfName.Image.equals(imageAsStream.getAsName(PdfName.Subtype)) && imageAsStream.getLength() > 128) {
                     zeroOutStream(imageAsStream, "image");
                 }
             }
@@ -165,11 +163,12 @@ public class PdfExtractService {
     }
 
 
-    public void reconstructResourcesInPdf(String source, String dest) throws IOException {
+    public void reconstructResourcesInPdf(String sourceDir, String destDir, String name) throws IOException {
 
+        new File(dir, destDir).mkdir();
         PdfDocument pdfDoc = new PdfDocument(
-                new PdfReader(new File(dir, source)),
-                new PdfWriter(new File(dir, dest))
+                new PdfReader(new File(new File(dir, sourceDir), name)),
+                new PdfWriter(new File(new File(dir, destDir), name))
         );
 
         for (int i = 0; i < pdfDoc.getNumberOfPages(); i++) {

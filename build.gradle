@@ -1,31 +1,30 @@
 buildscript {
-	ext {
-		springBootVersion = '2.0.6.RELEASE'
-	}
 	repositories {
-		mavenCentral()
+		jcenter()
+        mavenCentral()
 	}
-	dependencies {
-		classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
-	}
+    dependencies {
+        classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.1'
+    }
 }
 
 apply plugin: 'java'
-apply plugin: 'eclipse'
-apply plugin: 'org.springframework.boot'
-apply plugin: 'io.spring.dependency-management'
+apply plugin: 'com.github.johnrengelman.shadow'
 
 group = 'com.smalik.nicepdf'
 version = '0.0.1-SNAPSHOT'
 sourceCompatibility = 1.8
 
 repositories {
-	mavenCentral()
+    jcenter()
+    mavenCentral()
 }
 
 dependencies {
-    implementation('org.springframework.boot:spring-boot-starter-json')
+    compile group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.9.7'
     compile group: 'com.itextpdf', name: 'kernel', version: '7.1.4'
 	compile group: 'com.itextpdf', name: 'layout', version: '7.1.4'
-	compile group: 'commons-io', name: 'commons-io', version: '2.6'
+    compile group: 'commons-codec', name: 'commons-codec', version: '1.11'
+    compile group: 'commons-io', name: 'commons-io', version: '2.6'
+    compile group: 'ch.qos.logback', name: 'logback-classic', version: '1.2.3'
 }

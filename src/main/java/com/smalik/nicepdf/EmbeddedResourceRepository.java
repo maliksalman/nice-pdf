@@ -2,8 +2,8 @@ package com.smalik.nicepdf;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
-import org.springframework.util.DigestUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -49,7 +49,7 @@ public class EmbeddedResourceRepository {
     }
 
     public String calculateMd5(byte[] data) {
-        return DigestUtils.md5DigestAsHex(data);
+        return DigestUtils.md5Hex(data);
     }
 
     public void persist() throws IOException {
